@@ -13,8 +13,14 @@ except ImportError:
     NTFS = False
 
 
-def is_link_or_junction(path):
+def islink_or_isjunction(path):
     return os.path.islink(path) or (NTFS and ntfsutils.junction.isjunction(path))
+
+def getsize(path):
+    try:
+        return os.path.getsize(path)
+    except WindowsError:
+        return 0
 
 
 def dir_list(base):
@@ -38,15 +44,15 @@ def dir_size(base, skiplinks=True):
     for dirpath, dirnames, filenames in os.walk(base):
         # if we are skipping links, skip everything that starts with dirpath
         if skiplinks:
-            if is_link_or_junction(dirpath):
+            if islink_or_isjunction(dirpath):
                 linkpath = dirpath
             if linkpath and dirpath.startswith(linkpath):
                 continue
         for f in filenames:
             fp = os.path.join(dirpath, f)
-            if skiplinks and is_link_or_junction(fp):
+            if skiplinks and islink_or_isjunction(fp):
                 continue
-            size += os.path.getsize(fp)
+            size += getsize(fp)
     return size
 
 
@@ -99,10 +105,10 @@ def main():
     # base files
     for f in file_list(args.PATH):
         fp = os.path.join(args.PATH, f)
-        if not args.l and is_link_or_junction(fp):
+        if not args.l and islink_or_isjunction(fp):
             sizes.append((0, f))
         else:
-            sizes.append((os.path.getsize(fp), f))
+            sizes.append((getsize(fp), f))
 
     # recurse subdirectories
     for d in dir_list(args.PATH):

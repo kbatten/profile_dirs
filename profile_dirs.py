@@ -13,14 +13,9 @@ except ImportError:
     NTFS = False
 
 
+
 def islink_or_isjunction(path):
     return os.path.islink(path) or (NTFS and ntfsutils.junction.isjunction(path))
-
-def getsize(path):
-    try:
-        return os.path.getsize(path)
-    except WindowsError:
-        return 0
 
 
 def dir_list(base):
@@ -38,6 +33,25 @@ def file_list(base):
         files = []
     return files
 
+
+def file_size(path, skiplinks=True):
+    if skiplinks and islink_or_isjunction(path):
+        return 0
+
+    if not NTFS:
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+
+    try:
+        return os.path.getsize(path)
+    except WindowsError:
+        return 0
+    except OSError:
+        return 0
+
+
 def dir_size(base, skiplinks=True):
     size = 0
     linkpath = ""
@@ -50,9 +64,7 @@ def dir_size(base, skiplinks=True):
                 continue
         for f in filenames:
             fp = os.path.join(dirpath, f)
-            if skiplinks and islink_or_isjunction(fp):
-                continue
-            size += getsize(fp)
+            size += file_size(fp, skiplinks)
     return size
 
 
@@ -79,6 +91,7 @@ def print_spaced_list(l):
     for v in l:
         print(fstr.format(*v))
 
+
 def humanize(v):
     sufs = ["", "K", "M", "G"]
     sufi = 0
@@ -89,6 +102,7 @@ def humanize(v):
         else:
             break
     return str(v) + sufs[sufi]
+
 
 
 def main():
@@ -105,10 +119,7 @@ def main():
     # base files
     for f in file_list(args.PATH):
         fp = os.path.join(args.PATH, f)
-        if not args.l and islink_or_isjunction(fp):
-            sizes.append((0, f))
-        else:
-            sizes.append((getsize(fp), f))
+        sizes.append((file_size(fp, not args.l), f))
 
     # recurse subdirectories
     for d in dir_list(args.PATH):

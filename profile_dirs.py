@@ -22,11 +22,20 @@ def file_list(base):
         files = []
     return files
 
-def dir_size(base):
+def dir_size(base, skiplinks=True):
     size = 0
+    linkpath = ""
     for dirpath, dirnames, filenames in os.walk(base):
+        # if we are skipping links, skip everything that starts with dirpath
+        if skiplinks:
+            if os.path.islink(dirpath):
+                linkpath = dirpath
+            if linkpath and dirpath.startswith(linkpath):
+                continue
         for f in filenames:
             fp = os.path.join(dirpath, f)
+            if skiplinks and os.path.islink(fp):
+                continue
             size += os.path.getsize(fp)
     return size
 
@@ -70,6 +79,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", action="store_true", help="sort results by size")
     parser.add_argument("-H", action="store_true", help="print sizes in human readable format")
+    parser.add_argument("-l", action="store_true", help="follow links")
     parser.add_argument("PATH", nargs="?", default=".")
 
     args = parser.parse_args()
@@ -78,11 +88,15 @@ def main():
 
     # base files
     for f in file_list(args.PATH):
-        sizes.append((os.path.getsize(os.path.join(args.PATH, f)), f))
+        fp = os.path.join(args.PATH, f)
+        if not args.l and os.path.islink(fp):
+            sizes.append((0, f))
+        else:
+            sizes.append((os.path.getsize(fp), f))
 
     # recurse subdirectories
     for d in dir_list(args.PATH):
-        sizes.append((dir_size(os.path.join(args.PATH, d)), d))
+        sizes.append((dir_size(os.path.join(args.PATH, d), not args.l), d))
 
     if args.s:
         sizes_sorted = sorted(sizes, key=lambda f: f[0])

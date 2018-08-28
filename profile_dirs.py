@@ -109,7 +109,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", action="store_true", help="sort results by size")
     parser.add_argument("-H", action="store_true", help="print sizes in human readable format")
-    parser.add_argument("-l", action="store_true", help="follow links")
+    parser.add_argument("-l", action="store_true", help="follow links (symlinks and junctions)")
     parser.add_argument("PATH", nargs="?", default=".")
 
     args = parser.parse_args()

@@ -6,6 +6,16 @@ import os
 import sys
 import argparse
 
+try:
+    import ntfsutils.junction
+    NTFS = True
+except ImportError:
+    NTFS = False
+
+
+def is_link_or_junction(path):
+    return os.path.islink(path) or (NTFS and ntfsutils.junction.isjunction(path))
+
 
 def dir_list(base):
     try:
@@ -28,13 +38,13 @@ def dir_size(base, skiplinks=True):
     for dirpath, dirnames, filenames in os.walk(base):
         # if we are skipping links, skip everything that starts with dirpath
         if skiplinks:
-            if os.path.islink(dirpath):
+            if is_link_or_junction(dirpath):
                 linkpath = dirpath
             if linkpath and dirpath.startswith(linkpath):
                 continue
         for f in filenames:
             fp = os.path.join(dirpath, f)
-            if skiplinks and os.path.islink(fp):
+            if skiplinks and is_link_or_junction(fp):
                 continue
             size += os.path.getsize(fp)
     return size
@@ -89,7 +99,7 @@ def main():
     # base files
     for f in file_list(args.PATH):
         fp = os.path.join(args.PATH, f)
-        if not args.l and os.path.islink(fp):
+        if not args.l and is_link_or_junction(fp):
             sizes.append((0, f))
         else:
             sizes.append((os.path.getsize(fp), f))

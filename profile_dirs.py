@@ -107,6 +107,7 @@ def humanize(v):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--version", action="version", version="%(prog)s 1.0")
     parser.add_argument("-s", action="store_true", help="sort results by size")
     parser.add_argument("-H", action="store_true", help="print sizes in human readable format")
     parser.add_argument("-l", action="store_true", help="follow links (symlinks and junctions)")

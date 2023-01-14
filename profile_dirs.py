@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from __future__ import print_function
 
@@ -19,18 +19,20 @@ def islink_or_isjunction(path):
 
 
 def dir_list(base):
-    try:
-        directories = os.walk(base).next()[1]
-    except StopIteration:
-        directories = []
+    directories = []
+    with os.scandir(base) as it:
+        for entry in it:
+            if not entry.name.startswith('.') and entry.is_dir():
+                directories.append(entry.name)
     return directories
 
 
 def file_list(base):
-    try:
-        files = os.walk(base).next()[2]
-    except StopIteration:
-        files = []
+    files = []
+    with os.scandir(base) as it:
+        for entry in it:
+            if not entry.name.startswith('.') and entry.is_file():
+                files.append(entry.name)
     return files
 
 
@@ -98,7 +100,7 @@ def humanize(v):
     for i in range(3):
         if v > 1024:
             sufi += 1
-            v /= 1024
+            v //= 1024
         else:
             break
     return str(v) + sufs[sufi]

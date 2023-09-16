@@ -5,13 +5,14 @@ from __future__ import print_function
 import os
 import sys
 import argparse
+from collections import namedtuple
+import json
 
 try:
     import ntfsutils.junction
     NTFS = True
 except ImportError:
     NTFS = False
-
 
 
 def islink_or_isjunction(path):
@@ -26,8 +27,21 @@ def dir_list(base):
                 directories.append(entry.name)
     return directories
 
+def humanize_sizes(sizes, h):
+    if h:
+        for size in sizes:
+            size["size"] = humanize(size["size"])
+    return sizes
 
-def file_list(base):
+def sort_sizes(sizes, sort_by_size):
+    if sort_by_size:
+        sizes_sorted = sorted(sizes, key=lambda f: f["size"])
+    else:
+        sizes_sorted = sorted(sizes, key=lambda f: f["path"].lower())
+    return sizes_sorted
+        
+
+def file_list(base, sort):
     files = []
     with os.scandir(base) as it:
         for entry in it:
@@ -40,22 +54,24 @@ def file_size(path, skiplinks=True):
     if skiplinks and islink_or_isjunction(path):
         return 0
 
+    size = 0
     if not NTFS:
         try:
-            return os.path.getsize(path)
+            size = os.path.getsize(path)
         except OSError:
-            return 0
+            pass
+    else:
+        try:
+            size = os.path.getsize(path)
+        except (WindowsError, OSError):
+            pass
 
-    try:
-        return os.path.getsize(path)
-    except WindowsError:
-        return 0
-    except OSError:
-        return 0
+    return {"size": size, "path": path}
 
 
-def dir_size(base, skiplinks=True):
+def dir_size(base, skiplinks, sort, h, j):
     size = 0
+    subs = []
     linkpath = ""
     for dirpath, dirnames, filenames in os.walk(base):
         # if we are skipping links, skip everything that starts with dirpath
@@ -66,8 +82,10 @@ def dir_size(base, skiplinks=True):
                 continue
         for f in filenames:
             fp = os.path.join(dirpath, f)
-            size += file_size(fp, skiplinks)
-    return size
+            file_profile = file_size(fp, skiplinks)
+            subs.append(file_profile)
+            size += file_profile["size"]
+    return {"size": size, "path": base, "subs": humanize_sizes(sort_sizes(subs, sort) if j else [], h)}
 
 
 def print_spaced_list(l):
@@ -113,6 +131,7 @@ def main():
     parser.add_argument("-s", action="store_true", help="sort results by size")
     parser.add_argument("-H", action="store_true", help="print sizes in human readable format")
     parser.add_argument("-l", action="store_true", help="follow links (symlinks and junctions)")
+    parser.add_argument("-j", action="store_true", help="print json")
     parser.add_argument("PATH", nargs="?", default=".")
 
     args = parser.parse_args()
@@ -120,26 +139,21 @@ def main():
     sizes = []
 
     # base files
-    for f in file_list(args.PATH):
+    for f in file_list(args.PATH, args.s):
         fp = os.path.join(args.PATH, f)
-        sizes.append((file_size(fp, not args.l), f))
+        sizes.append(file_size(fp, not args.l))
 
     # recurse subdirectories
     for d in dir_list(args.PATH):
-        sizes.append((dir_size(os.path.join(args.PATH, d), not args.l), d))
+        sizes.append(dir_size(os.path.join(args.PATH, d), not args.l, args.s, args.H, args.j))
 
-    if args.s:
-        sizes_sorted = sorted(sizes, key=lambda f: f[0])
+    sort_sizes(sizes, args.s)
+    humanize_sizes(sizes, args.H)
+
+    if args.j:
+        print(json.dumps(sizes, indent=2))
     else:
-        sizes_sorted = sorted(sizes, key=lambda f: f[1])
-
-    if args.H:
-        sso = sizes_sorted
-        sizes_sorted = []
-        for i, v in enumerate(sso):
-            sizes_sorted.append((humanize(sso[i][0]), sso[i][1]))
-
-    print_spaced_list(sizes_sorted)
+        print_spaced_list([("*" if "subs" in s else " ", s["size"], s["path"]) for s in sizes])
 
 
 if __name__ == "__main__":

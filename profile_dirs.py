@@ -47,19 +47,25 @@ def islink_or_isjunction(path):
 
 def list_dirs(path):
     directories = []
-    with os.scandir(path) as it:
-        for entry in it:
-            if entry.is_dir():
-                directories.append(entry.name)
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if entry.is_dir():
+                    directories.append(entry.name)
+    except PermissionError:
+        pass
     return directories
 
 
 def list_files(path):
     files = []
-    with os.scandir(path) as it:
-        for entry in it:
-            if not entry.name.startswith('.') and entry.is_file():
-                files.append(entry.name)
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if not entry.name.startswith('.') and entry.is_file():
+                    files.append(entry.name)
+    except PermissionError:
+        pass
     return files
 
 
@@ -82,27 +88,33 @@ def file_size(path, name, skiplinks):
     return {"size": size, "name": name}
 
 
-def dir_size(path, name, skiplinks, sort_by_size, humanize, save_subs):
+def dir_size(path, name, skiplinks, sort_by_size, humanize, save_subs, inodes=None):
+    if not inodes:
+        inodes = {}
     size = 0
     subs = []
-    linkpath = ""
-    #for dirpath, dirnames, filenames in os.walk(path, follow_symlinks=not skiplinks):
-    with os.scandir(path) as it:
-        for entry in it:
-            if entry.is_file():
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
                 fp = os.path.join(path, entry.name)
-                subs.append(file_size(fp, entry.name, skiplinks))
-                size += subs[-1]["size"]
-            if entry.is_dir():
-                fp = os.path.join(path, entry.name)
-                # if we are skipping links, skip everything that starts with dirpath
-                if skiplinks:
-                    if islink_or_isjunction(fp):
-                        linkpath = fp
-                    if linkpath and fp.startswith(linkpath):
+                if skiplinks and islink_or_isjunction(fp):
+                    continue
+                try:
+                    # handle too many symlinks
+                    if inodes.get(entry.inode()):
                         continue
-                subs.append(dir_size(fp, entry.name, skiplinks, sort_by_size, humanize, save_subs))
-                size += subs[-1]["size"]
+                    inodes[entry.inode()] = True
+                    if entry.is_file():
+                        subs.append(file_size(fp, entry.name, skiplinks))
+                        size += subs[-1]["size"]
+                    if entry.is_dir():
+                        subs.append(dir_size(fp, entry.name, skiplinks, sort_by_size, humanize, save_subs, inodes))
+                        size += subs[-1]["size"]
+                except OSError:
+                    # handle too many symlinks /dir -> /
+                    continue
+    except PermissionError:
+        pass
     return {"size": size, "name": name, "subs": humanize_sizes(sort_sizes(subs, sort_by_size) if save_subs else [], humanize)}
 
 

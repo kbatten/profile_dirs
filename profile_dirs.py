@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
-from __future__ import print_function
-
 import os
 import sys
 import argparse
+from collections import namedtuple
+import json
 
 try:
     import ntfsutils.junction
@@ -14,60 +14,108 @@ except ImportError:
 
 
 
+def humanize_size(size):
+    sufs = ["", "K", "M", "G"]
+    sufi = 0
+    for i in range(3):
+        if size > 1024:
+            sufi += 1
+            size //= 1024
+        else:
+            break
+    return str(size) + sufs[sufi]
+
+
+def humanize_sizes(sizes, humanize):
+    if humanize:
+        for size in sizes:
+            size["size"] = humanize_size(size["size"])
+    return sizes
+
+
+def sort_sizes(sizes, sort_by_size):
+    if sort_by_size:
+        sizes.sort(key=lambda f: f["size"])
+    else:
+        sizes.sort(key=lambda f: f["name"].lower())
+    return sizes
+
+
 def islink_or_isjunction(path):
     return os.path.islink(path) or (NTFS and ntfsutils.junction.isjunction(path))
 
 
-def dir_list(base):
+def list_dirs(path):
     directories = []
-    with os.scandir(base) as it:
-        for entry in it:
-            if not entry.name.startswith('.') and entry.is_dir():
-                directories.append(entry.name)
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if entry.is_dir():
+                    directories.append(entry.name)
+    except PermissionError:
+        pass
     return directories
 
 
-def file_list(base):
+def list_files(path):
     files = []
-    with os.scandir(base) as it:
-        for entry in it:
-            if not entry.name.startswith('.') and entry.is_file():
-                files.append(entry.name)
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if not entry.name.startswith('.') and entry.is_file():
+                    files.append(entry.name)
+    except PermissionError:
+        pass
     return files
 
 
-def file_size(path, skiplinks=True):
+def file_size(path, name, skiplinks):
     if skiplinks and islink_or_isjunction(path):
         return 0
 
+    size = 0
     if not NTFS:
         try:
-            return os.path.getsize(path)
+            size = os.path.getsize(path)
         except OSError:
-            return 0
+            pass
+    else:
+        try:
+            size = os.path.getsize(path)
+        except (WindowsError, OSError):
+            pass
 
-    try:
-        return os.path.getsize(path)
-    except WindowsError:
-        return 0
-    except OSError:
-        return 0
+    return {"size": size, "name": name}
 
 
-def dir_size(base, skiplinks=True):
+def dir_size(path, name, skiplinks, sort_by_size, humanize, save_subs, inodes=None):
+    if not inodes:
+        inodes = {}
     size = 0
-    linkpath = ""
-    for dirpath, dirnames, filenames in os.walk(base):
-        # if we are skipping links, skip everything that starts with dirpath
-        if skiplinks:
-            if islink_or_isjunction(dirpath):
-                linkpath = dirpath
-            if linkpath and dirpath.startswith(linkpath):
-                continue
-        for f in filenames:
-            fp = os.path.join(dirpath, f)
-            size += file_size(fp, skiplinks)
-    return size
+    subs = []
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                fp = os.path.join(path, entry.name)
+                if skiplinks and islink_or_isjunction(fp):
+                    continue
+                try:
+                    # handle too many symlinks
+                    if inodes.get(entry.inode()):
+                        continue
+                    inodes[entry.inode()] = True
+                    if entry.is_file():
+                        subs.append(file_size(fp, entry.name, skiplinks))
+                        size += subs[-1]["size"]
+                    if entry.is_dir():
+                        subs.append(dir_size(fp, entry.name, skiplinks, sort_by_size, humanize, save_subs, inodes))
+                        size += subs[-1]["size"]
+                except OSError:
+                    # handle too many symlinks /dir -> /
+                    continue
+    except PermissionError:
+        pass
+    return {"size": size, "name": name, "subs": humanize_sizes(sort_sizes(subs, sort_by_size) if save_subs else [], humanize)}
 
 
 def print_spaced_list(l):
@@ -94,25 +142,14 @@ def print_spaced_list(l):
         print(fstr.format(*v))
 
 
-def humanize(v):
-    sufs = ["", "K", "M", "G"]
-    sufi = 0
-    for i in range(3):
-        if v > 1024:
-            sufi += 1
-            v //= 1024
-        else:
-            break
-    return str(v) + sufs[sufi]
-
-
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", action="version", version="%(prog)s 1.0")
+    parser.add_argument("--version", action="version", version="%(prog)s 1.1")
     parser.add_argument("-s", action="store_true", help="sort results by size")
     parser.add_argument("-H", action="store_true", help="print sizes in human readable format")
     parser.add_argument("-l", action="store_true", help="follow links (symlinks and junctions)")
+    parser.add_argument("-j", action="store_true", help="print json")
     parser.add_argument("PATH", nargs="?", default=".")
 
     args = parser.parse_args()
@@ -120,26 +157,21 @@ def main():
     sizes = []
 
     # base files
-    for f in file_list(args.PATH):
+    for f in list_files(args.PATH):
         fp = os.path.join(args.PATH, f)
-        sizes.append((file_size(fp, not args.l), f))
+        sizes.append(file_size(fp, f, not args.l))
 
     # recurse subdirectories
-    for d in dir_list(args.PATH):
-        sizes.append((dir_size(os.path.join(args.PATH, d), not args.l), d))
+    for d in list_dirs(args.PATH):
+        sizes.append(dir_size(os.path.join(args.PATH, d), d, not args.l, args.s, args.H, args.j))
 
-    if args.s:
-        sizes_sorted = sorted(sizes, key=lambda f: f[0])
+    sort_sizes(sizes, args.s)
+    humanize_sizes(sizes, args.H)
+
+    if args.j:
+        print(json.dumps(sizes, indent=2))
     else:
-        sizes_sorted = sorted(sizes, key=lambda f: f[1])
-
-    if args.H:
-        sso = sizes_sorted
-        sizes_sorted = []
-        for i, v in enumerate(sso):
-            sizes_sorted.append((humanize(sso[i][0]), sso[i][1]))
-
-    print_spaced_list(sizes_sorted)
+        print_spaced_list([("*" if "subs" in s else " ", s["size"], s["name"]) for s in sizes])
 
 
 if __name__ == "__main__":

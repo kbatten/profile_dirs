@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-from __future__ import print_function
-
 import os
 import sys
 import argparse
@@ -15,42 +13,57 @@ except ImportError:
     NTFS = False
 
 
+
+def humanize_size(size):
+    sufs = ["", "K", "M", "G"]
+    sufi = 0
+    for i in range(3):
+        if size > 1024:
+            sufi += 1
+            size //= 1024
+        else:
+            break
+    return str(size) + sufs[sufi]
+
+
+def humanize_sizes(sizes, humanize):
+    if humanize:
+        for size in sizes:
+            size["size"] = humanize_size(size["size"])
+    return sizes
+
+
+def sort_sizes(sizes, sort_by_size):
+    if sort_by_size:
+        sizes = sorted(sizes, key=lambda f: f["size"])
+    else:
+        sizes = sorted(sizes, key=lambda f: f["path"].lower())
+    return sizes
+
+
 def islink_or_isjunction(path):
     return os.path.islink(path) or (NTFS and ntfsutils.junction.isjunction(path))
 
 
-def dir_list(base):
+def list_dirs(path):
     directories = []
-    with os.scandir(base) as it:
+    with os.scandir(path) as it:
         for entry in it:
             if not entry.name.startswith('.') and entry.is_dir():
                 directories.append(entry.name)
     return directories
 
-def humanize_sizes(sizes, h):
-    if h:
-        for size in sizes:
-            size["size"] = humanize(size["size"])
-    return sizes
 
-def sort_sizes(sizes, sort_by_size):
-    if sort_by_size:
-        sizes_sorted = sorted(sizes, key=lambda f: f["size"])
-    else:
-        sizes_sorted = sorted(sizes, key=lambda f: f["path"].lower())
-    return sizes_sorted
-        
-
-def file_list(base, sort):
+def list_files(path):
     files = []
-    with os.scandir(base) as it:
+    with os.scandir(path) as it:
         for entry in it:
             if not entry.name.startswith('.') and entry.is_file():
                 files.append(entry.name)
     return files
 
 
-def file_size(path, skiplinks=True):
+def file_size(path, skiplinks):
     if skiplinks and islink_or_isjunction(path):
         return 0
 
@@ -69,11 +82,11 @@ def file_size(path, skiplinks=True):
     return {"size": size, "path": path}
 
 
-def dir_size(base, skiplinks, sort, h, j):
+def dir_size(path, skiplinks, sort_by_size, humanize, save_subs):
     size = 0
     subs = []
     linkpath = ""
-    for dirpath, dirnames, filenames in os.walk(base):
+    for dirpath, dirnames, filenames in os.walk(path):
         # if we are skipping links, skip everything that starts with dirpath
         if skiplinks:
             if islink_or_isjunction(dirpath):
@@ -82,10 +95,9 @@ def dir_size(base, skiplinks, sort, h, j):
                 continue
         for f in filenames:
             fp = os.path.join(dirpath, f)
-            file_profile = file_size(fp, skiplinks)
-            subs.append(file_profile)
-            size += file_profile["size"]
-    return {"size": size, "path": base, "subs": humanize_sizes(sort_sizes(subs, sort) if j else [], h)}
+            subs.append(file_size(fp, skiplinks))
+            size += subs[-1]["size"]
+    return {"size": size, "path": path, "subs": humanize_sizes(sort_sizes(subs, sort_by_size) if save_subs else [], humanize)}
 
 
 def print_spaced_list(l):
@@ -112,22 +124,10 @@ def print_spaced_list(l):
         print(fstr.format(*v))
 
 
-def humanize(v):
-    sufs = ["", "K", "M", "G"]
-    sufi = 0
-    for i in range(3):
-        if v > 1024:
-            sufi += 1
-            v //= 1024
-        else:
-            break
-    return str(v) + sufs[sufi]
-
-
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", action="version", version="%(prog)s 1.0")
+    parser.add_argument("--version", action="version", version="%(prog)s 1.1")
     parser.add_argument("-s", action="store_true", help="sort results by size")
     parser.add_argument("-H", action="store_true", help="print sizes in human readable format")
     parser.add_argument("-l", action="store_true", help="follow links (symlinks and junctions)")
@@ -139,12 +139,12 @@ def main():
     sizes = []
 
     # base files
-    for f in file_list(args.PATH, args.s):
+    for f in list_files(args.PATH):
         fp = os.path.join(args.PATH, f)
         sizes.append(file_size(fp, not args.l))
 
     # recurse subdirectories
-    for d in dir_list(args.PATH):
+    for d in list_dirs(args.PATH):
         sizes.append(dir_size(os.path.join(args.PATH, d), not args.l, args.s, args.H, args.j))
 
     sort_sizes(sizes, args.s)

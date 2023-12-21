@@ -71,7 +71,7 @@ def list_files(path):
 
 def file_size(path, name, skiplinks):
     if skiplinks and islink_or_isjunction(path):
-        return 0
+        return {"size": 0, "name": name}
 
     size = 0
     if not NTFS:
@@ -89,6 +89,9 @@ def file_size(path, name, skiplinks):
 
 
 def dir_size(path, name, skiplinks, sort_by_size, humanize, save_subs, inodes=None):
+    if skiplinks and islink_or_isjunction(path):
+        return {"size": 0, "name": name, "subs": []}
+
     if not inodes:
         inodes = {}
     size = 0

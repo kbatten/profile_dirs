@@ -111,6 +111,8 @@ def dir_size(path, name, skiplinks, sort_by_size, humanize, save_subs, inodes=No
                         subs.append(file_size(fp, entry.name, skiplinks))
                         size += subs[-1]["size"]
                     if entry.is_dir():
+                        if save_subs:
+                            save_subs -= 1
                         subs.append(dir_size(fp, entry.name, skiplinks, sort_by_size, humanize, save_subs, inodes))
                         size += subs[-1]["size"]
                 except OSError:
@@ -153,11 +155,19 @@ def main():
     parser.add_argument("-H", action="store_true", help="print sizes in human readable format")
     parser.add_argument("-l", action="store_true", help="follow links (symlinks and junctions)")
     parser.add_argument("-j", action="store_true", help="print json")
+    parser.add_argument("-d", help="json depth")
     parser.add_argument("PATH", nargs="?", default=".")
 
     args = parser.parse_args()
 
     sizes = []
+
+    if args.d and args.j:
+        depth = int(args.d)
+    elif args.j:
+        depth = 10000000
+    else:
+        depth = 0
 
     # base files
     for f in list_files(args.PATH):
@@ -166,7 +176,7 @@ def main():
 
     # recurse subdirectories
     for d in list_dirs(args.PATH):
-        sizes.append(dir_size(os.path.join(args.PATH, d), d, not args.l, args.s, args.H, args.j))
+        sizes.append(dir_size(os.path.join(args.PATH, d), d, not args.l, args.s, args.H, depth))
 
     sort_sizes(sizes, args.s)
     humanize_sizes(sizes, args.H)
